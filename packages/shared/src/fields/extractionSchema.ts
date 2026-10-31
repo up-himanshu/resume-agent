@@ -1,6 +1,6 @@
 import { z } from "zod";
-import type { FieldDefinition, LeafField } from "./types.js";
-import { PartialDateSchema, isExtractable } from "./common.js";
+import type { FieldDefinition, FieldType, LeafField } from "./types.js";
+import { PARTIAL_DATE_RE, isExtractable } from "./common.js";
 
 // Builds the schema the *model* must fill. Every value is wrapped in a "suggestion unit":
 // the value, the exact resume text supporting it, and the model's self-reported confidence.
@@ -28,7 +28,14 @@ function leafValueSchema(field: LeafField): z.ZodType {
     case "checkbox":
       return z.boolean().nullable();
     case "month":
-      return PartialDateSchema.nullable();
+      // The format is described in words (FORMAT_HINTS) and checked by Zod after generation.
+      // A `.refine` isn't emitted into JSON Schema, so the model's output isn't regex-constrained.
+      // With a regex `pattern` here, strict constrained decoding forced digits the model hadn't
+      // planned and produced well-formed nonsense like "0404-01" for "Apr 2023".
+      return z
+        .string()
+        .refine((v) => PARTIAL_DATE_RE.test(v), 'Use "YYYY-MM", or "YYYY" if the month is unknown')
+        .nullable();
     case "tags":
       return z.array(z.string());
     default:
@@ -36,8 +43,14 @@ function leafValueSchema(field: LeafField): z.ZodType {
   }
 }
 
+// Format rules every field of a type needs, stated in words the model reads. A schema constraint
+// the model isn't told about is a filter it fights against, not an instruction it follows.
+const FORMAT_HINTS: Partial<Record<FieldType, string>> = {
+  month: 'Format "YYYY-MM", e.g. "Apr 2023" becomes "2023-04". Use "YYYY" if only the year is given',
+};
+
 function describeField(field: FieldDefinition): string {
-  return [field.label, field.hint].filter(Boolean).join(". ");
+  return [field.label, field.hint, FORMAT_HINTS[field.type]].filter(Boolean).join(". ");
 }
 
 export function fieldExtractionSchema(field: FieldDefinition): z.ZodType {

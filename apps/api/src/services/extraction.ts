@@ -17,6 +17,7 @@ import { generateStructured } from "../llm/structured.js";
 import { HttpError } from "../http/errors.js";
 import { GROUNDING_WEIGHT, adjustedConfidence, locateQuote } from "./grounding.js";
 import { log, logBlock } from "../log.js";
+import { consistencyIssues } from "./consistency.js";
 
 const form = profileForm;
 
@@ -99,7 +100,7 @@ function toSuggestions(
         `  evidence quote: ${unitValue.evidence === null ? "(none)" : `"${preview(unitValue.evidence, 160)}"`}`,
         `  grounding: ${grounding}, ${GROUNDING_EXPLANATION[grounding]}${span ? ` (resume chars ${span.start}-${span.end}: "${preview(resumeText.slice(span.start, span.end), 80)}")` : ""}`,
         `  confidence: model said ${unitValue.confidence} x grounding weight ${GROUNDING_WEIGHT[grounding]} = ${confidence}`,
-        `  form validation: ${issues.length ? `PROBLEMS: ${issues.join("; ")}` : "OK, the value fits the form field's rules"}`,
+        `  checks (form rules + dates vs evidence): ${issues.length ? `PROBLEMS: ${issues.join("; ")}` : "OK"}`,
       ].join("\n"),
     );
     return {
@@ -131,7 +132,8 @@ function toSuggestions(
       const raw = u.value as Record<string, unknown>;
       // Convert model nulls into the form's empty values so the item is ready for setValue().
       const item = Object.fromEntries(field.fields.map((f) => [f.name, raw[f.name] ?? emptyValue(f)]));
-      return build(`${field.name}[${i}]`, "groupItem", u, item, validationIssues(groupSchema, [item], 1));
+      const issues = [...validationIssues(groupSchema, [item], 1), ...consistencyIssues(field.fields, item, u.evidence)];
+      return build(`${field.name}[${i}]`, "groupItem", u, item, issues);
     });
   }
 
@@ -140,7 +142,11 @@ function toSuggestions(
     log(scope, `Field "${field.name}": the model found nothing in the resume (value is ${JSON.stringify(u.value)}), so no suggestion is created.`);
     return [];
   }
-  return [build(field.name, "field", u, u.value, validationIssues(fieldFormSchema(field), u.value))];
+  const issues = [
+    ...validationIssues(fieldFormSchema(field), u.value),
+    ...consistencyIssues([field], { [field.name]: u.value }, u.evidence),
+  ];
+  return [build(field.name, "field", u, u.value, issues)];
 }
 
 export async function extractSuggestions(resumeText: string, strategy: ExtractionStrategy): Promise<ExtractResponse> {

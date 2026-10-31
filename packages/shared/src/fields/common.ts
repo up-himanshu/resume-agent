@@ -2,7 +2,8 @@ import { z } from "zod";
 import type { FieldDefinition, FormDefinition } from "./types.js";
 
 /** "YYYY-MM" or "YYYY". */
-export const PartialDateSchema = z.string().regex(/^\d{4}(-(0[1-9]|1[0-2]))?$/, "Use YYYY-MM or YYYY");
+export const PARTIAL_DATE_RE = /^\d{4}(-(0[1-9]|1[0-2]))?$/;
+export const PartialDateSchema = z.string().regex(PARTIAL_DATE_RE, "Use YYYY-MM or YYYY");
 
 export function isEmptyValue(v: unknown): boolean {
   return v === null || v === undefined || v === "" || v === false || (Array.isArray(v) && v.length === 0);
