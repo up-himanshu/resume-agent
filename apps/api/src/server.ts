@@ -4,9 +4,20 @@ import { env } from "./env.js";
 import { pool } from "./db.js";
 import { extractRouter } from "./routes/extract.js";
 import { errorHandler } from "./http/errors.js";
+import { log, requestContext } from "./log.js";
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
+app.use(requestContext);
+// One line per finished request. /health is polled every 30s by the UI, so it's skipped as noise.
+app.use((req, res, next) => {
+  if (req.path === "/health") return next();
+  const startedAt = performance.now();
+  res.on("finish", () => {
+    log("http", `Finished ${req.method} ${req.path} with status ${res.statusCode} in ${Math.round(performance.now() - startedAt)}ms`);
+  });
+  next();
+});
 
 app.get("/health", async (_req, res) => {
   let body: HealthResponse;

@@ -15,7 +15,8 @@ import {
 import { z } from "zod";
 import { generateStructured } from "../llm/structured.js";
 import { HttpError } from "../http/errors.js";
-import { adjustedConfidence, locateQuote } from "./grounding.js";
+import { GROUNDING_WEIGHT, adjustedConfidence, locateQuote } from "./grounding.js";
+import { log, logBlock } from "../log.js";
 
 const form = profileForm;
 
@@ -69,14 +70,38 @@ function validationIssues(schema: z.ZodType, value: unknown, stripPrefix = 0): s
   });
 }
 
+const GROUNDING_EXPLANATION: Record<string, string> = {
+  exact: "found character-for-character in the resume",
+  normalized: "found after normalizing (lowercase, collapsed spaces, unified dashes/quotes), but not character-for-character",
+  not_found: "NOT found anywhere in the resume: likely hallucinated",
+  missing: "the model gave no evidence quote at all",
+};
+
+function preview(value: unknown, max = 120): string {
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  return text.length > max ? `${text.slice(0, max - 3)}...` : text;
+}
+
 function toSuggestions(
   field: FieldDefinition,
   extracted: unknown,
   sectionId: string,
   resumeText: string,
+  scope: string,
 ): Suggestion[] {
   const build = (id: string, kind: Suggestion["kind"], unitValue: Unit, value: unknown, issues: string[]) => {
     const { grounding, span } = locateQuote(resumeText, unitValue.evidence);
+    const confidence = adjustedConfidence(unitValue.confidence, grounding);
+    log(
+      scope,
+      [
+        `Suggestion "${id}" (${kind}): value = ${preview(value)}`,
+        `  evidence quote: ${unitValue.evidence === null ? "(none)" : `"${preview(unitValue.evidence, 160)}"`}`,
+        `  grounding: ${grounding}, ${GROUNDING_EXPLANATION[grounding]}${span ? ` (resume chars ${span.start}-${span.end}: "${preview(resumeText.slice(span.start, span.end), 80)}")` : ""}`,
+        `  confidence: model said ${unitValue.confidence} x grounding weight ${GROUNDING_WEIGHT[grounding]} = ${confidence}`,
+        `  form validation: ${issues.length ? `PROBLEMS: ${issues.join("; ")}` : "OK, the value fits the form field's rules"}`,
+      ].join("\n"),
+    );
     return {
       id,
       fieldName: field.name,
@@ -87,12 +112,13 @@ function toSuggestions(
       evidenceSpan: span,
       grounding,
       modelConfidence: unitValue.confidence,
-      confidence: adjustedConfidence(unitValue.confidence, grounding),
+      confidence,
       issues,
     } satisfies Suggestion;
   };
 
   if (field.type === "tags") {
+    log(scope, `Field "${field.name}" is a tags list: the model returned ${(extracted as Unit[]).length} items. Each becomes its own suggestion so each skill is checked against its own evidence.`);
     return (extracted as Unit[])
       .filter((u) => typeof u.value === "string" && u.value.trim())
       .map((u, i) => build(`${field.name}[${i}]`, "tagItem", u, (u.value as string).trim(), []));
@@ -100,6 +126,7 @@ function toSuggestions(
 
   if (field.type === "group") {
     const groupSchema = fieldFormSchema(field);
+    log(scope, `Field "${field.name}" is a repeatable group: the model returned ${(extracted as Unit[]).length} item(s). Converting model nulls to the form's empty values ("" / false), then validating each item with the form schema.`);
     return (extracted as Unit[]).map((u, i) => {
       const raw = u.value as Record<string, unknown>;
       // Convert model nulls into the form's empty values so the item is ready for setValue().
@@ -109,7 +136,10 @@ function toSuggestions(
   }
 
   const u = extracted as Unit;
-  if (isEmptyValue(u.value)) return [];
+  if (isEmptyValue(u.value)) {
+    log(scope, `Field "${field.name}": the model found nothing in the resume (value is ${JSON.stringify(u.value)}), so no suggestion is created.`);
+    return [];
+  }
   return [build(field.name, "field", u, u.value, validationIssues(fieldFormSchema(field), u.value))];
 }
 
@@ -117,6 +147,22 @@ export async function extractSuggestions(resumeText: string, strategy: Extractio
   const startedAt = performance.now();
   const sectionOf = new Map(form.sections.flatMap((s) => s.fields.map((f) => [f.name, s.id] as const)));
   const groups = extractionGroups(strategy);
+  const skipped = allFields(form).filter((f) => !isExtractable(f));
+
+  log("extract", `STEP 3/6: Planning the model calls. Form "${form.id}" v${form.version} has ${form.sections.length} sections and ${allFields(form).length} top-level fields.`);
+  if (skipped.length) {
+    log("extract", `Skipping fields marked extractable:false (the user fills them by hand; they are never sent to the model): ${skipped.map((f) => f.name).join(", ")}`);
+  }
+  log(
+    "extract",
+    strategy === "per-section"
+      ? `Strategy "per-section": ${groups.length} model calls will run IN PARALLEL, one per section, each with a smaller schema. Faster overall, but the resume is sent ${groups.length} times (more input tokens).`
+      : `Strategy "single": 1 model call with one big schema for all fields. Fewer tokens, but slower because the model has to generate everything in one go.`,
+    groups.map((g) => `${g.id}: ${g.fields.map((f) => `${f.name} (${f.type})`).join(", ")}`).join("\n"),
+  );
+  const system = systemPrompt();
+  logBlock("extract", "System prompt (same for every call, so the shared prefix can be cached by OpenAI)", system);
+  log("extract", `STEP 4/6: Sending ${groups.length} call(s) to the model now. Lines tagged [llm/<section>] belong to each call; parallel calls interleave.`);
 
   // allSettled, not all: one failed section shouldn't throw away the others' suggestions.
   const settled = await Promise.allSettled(
@@ -124,8 +170,9 @@ export async function extractSuggestions(resumeText: string, strategy: Extractio
       generateStructured({
         name: `extract_${g.id}`,
         schema: buildExtractionSchema(g.fields),
-        system: systemPrompt(),
+        system,
         user: userPrompt(resumeText, g),
+        logScope: `llm/${g.id}`,
       }),
     ),
   );
@@ -135,10 +182,12 @@ export async function extractSuggestions(resumeText: string, strategy: Extractio
   const calls: ExtractResponse["meta"]["calls"] = [];
   let model = "";
 
+  log("extract", `STEP 5/6: All ${groups.length} call(s) have finished (${settled.filter((r) => r.status === "fulfilled").length} succeeded, ${settled.filter((r) => r.status === "rejected").length} failed). Turning model output into suggestions: check each evidence quote against the resume, adjust confidence, validate against the form schema.`);
+
   settled.forEach((result, i) => {
     const group = groups[i]!;
     if (result.status === "rejected") {
-      console.error(`[extract] group ${group.id} failed:`, result.reason);
+      log(`build/${group.id}`, `This section's call FAILED, so it contributes no suggestions (the other sections still do): ${String(result.reason?.message ?? result.reason)}`);
       const zero = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0 };
       calls.push({ group: group.id, attempts: 0, latencyMs: 0, usage: zero, error: String(result.reason?.message ?? result.reason) });
       return;
@@ -149,8 +198,9 @@ export async function extractSuggestions(resumeText: string, strategy: Extractio
     usage.outputTokens += u.outputTokens;
     usage.reasoningTokens += u.reasoningTokens;
     calls.push({ group: group.id, attempts, latencyMs, usage: u, error: null });
+    log(`build/${group.id}`, `Section call succeeded in ${latencyMs}ms after ${attempts} attempt(s). Processing its ${group.fields.length} field(s).`);
     for (const field of group.fields) {
-      suggestions.push(...toSuggestions(field, (data as Record<string, unknown>)[field.name], sectionOf.get(field.name)!, resumeText));
+      suggestions.push(...toSuggestions(field, (data as Record<string, unknown>)[field.name], sectionOf.get(field.name)!, resumeText, `build/${group.id}`));
     }
   });
 
@@ -158,9 +208,18 @@ export async function extractSuggestions(resumeText: string, strategy: Extractio
     throw new HttpError(502, "EXTRACTION_FAILED", "All extraction calls failed", calls);
   }
 
+  const latencyMs = Math.round(performance.now() - startedAt);
+  const byGrounding = suggestions.reduce<Record<string, number>>((acc, s) => ((acc[s.grounding] = (acc[s.grounding] ?? 0) + 1), acc), {});
+  log(
+    "extract",
+    `Extraction finished in ${latencyMs}ms. ${suggestions.length} suggestions. Grounding: ${JSON.stringify(byGrounding)}. ` +
+      `${suggestions.filter((s) => s.issues.length).length} have form-validation problems. ` +
+      `Tokens across all calls: ${usage.inputTokens} input, ${usage.outputTokens} output (${usage.reasoningTokens} reasoning).`,
+  );
+
   return {
     formId: form.id,
     suggestions,
-    meta: { model, strategy, latencyMs: Math.round(performance.now() - startedAt), usage, calls },
+    meta: { model, strategy, latencyMs, usage, calls },
   };
 }

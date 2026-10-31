@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "pnpm --parallel --filter @resume-agent/api --filter @resume-agent/web dev",
     "dev:api": "pnpm --filter @resume-agent/api dev",
+    "dev:web": "pnpm --filter @resume-agent/web dev",
     "typecheck": "pnpm -r typecheck",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",

@@ -1,6 +1,7 @@
 import type { ErrorRequestHandler } from "express";
 import type { ApiError } from "@resume-agent/shared";
 import { z } from "zod";
+import { log } from "../log.js";
 
 export class HttpError extends Error {
   constructor(
@@ -40,5 +41,6 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     status = 500;
     body = { error: { code: "INTERNAL", message: "Unexpected server error" } };
   }
+  log("http", `Request failed: responding ${status} ${body.error.code}: ${body.error.message}`, body.error.details);
   res.status(status).json(body);
 };

@@ -55,7 +55,7 @@ export function locateQuote(source: string, quote: string | null): QuoteLocation
 
 // Heuristic weights: the model's self-reported confidence is poorly calibrated, so we discount
 // it by what we could verify. Tune these against eval results (Step 10), not intuition.
-const GROUNDING_WEIGHT: Record<Grounding, number> = {
+export const GROUNDING_WEIGHT: Record<Grounding, number> = {
   exact: 1,
   normalized: 0.9,
   missing: 0.5,
