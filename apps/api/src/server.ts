@@ -2,6 +2,8 @@ import express from "express";
 import { HealthResponseSchema, type HealthResponse } from "@resume-agent/shared";
 import { env } from "./env.js";
 import { pool } from "./db.js";
+import { extractRouter } from "./routes/extract.js";
+import { errorHandler } from "./http/errors.js";
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
@@ -24,6 +26,14 @@ app.get("/health", async (_req, res) => {
   res.status(body.status === "ok" ? 200 : 503).json(HealthResponseSchema.parse(body));
 });
 
-app.listen(env.API_PORT, () => {
+app.use(extractRouter);
+app.use(errorHandler);
+
+// Express 5 passes bind errors (e.g. EADDRINUSE) to this callback instead of throwing.
+app.listen(env.API_PORT, (err) => {
+  if (err) {
+    console.error(`Failed to start API on port ${env.API_PORT}: ${err.message}`);
+    process.exit(1);
+  }
   console.log(`API listening on http://localhost:${env.API_PORT}`);
 });

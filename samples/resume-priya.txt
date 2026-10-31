@@ -1,0 +1,33 @@
+PRIYA RAMANATHAN
+Senior Frontend Engineer
+priya.ramanathan@example.com | +1 (415) 555-0142 | San Francisco, CA | linkedin.com/in/priya-r-example
+
+SUMMARY
+Frontend engineer with 8 years of experience building data-heavy React applications. I care about
+accessible UI, fast forms, and making complex workflows feel simple.
+
+EXPERIENCE
+
+Brightline Health — Senior Frontend Engineer                         Mar 2022 – Present
+San Francisco, CA
+- Led a team of 4 engineers to rebuild the patient intake flow, a 160-field multi-step form, using
+  React Hook Form and Zod; cut form abandonment by 23%.
+- Introduced React Query and a typed Axios client, removing ~3,000 lines of hand-written fetch state.
+- Mentored two junior engineers through promotion to mid-level.
+
+Cartwheel Logistics — Frontend Engineer                               Jun 2018 – Feb 2022
+Remote
+- Built the shipment tracking dashboard in React and TypeScript, used by 1,200 dispatchers daily.
+- Migrated the component library from class components to hooks with Storybook coverage.
+- Partnered with the backend team to design REST contracts for the routing service (Node.js).
+
+Pixelmint Studio — Junior Web Developer                               Jul 2016 – May 2018
+Austin, TX
+- Shipped marketing sites for 20+ clients with JavaScript, Sass, and WordPress.
+
+SKILLS
+React, TypeScript, JavaScript, Node.js, React Hook Form, Zod, React Query, GraphQL, Jest,
+Playwright, Storybook, Accessibility (WCAG 2.1), PostgreSQL
+
+EDUCATION
+B.S. Computer Science, University of Texas at Austin, 2016
