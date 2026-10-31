@@ -3,7 +3,20 @@
 // validate it with Zod, then send the model its errors and check the corrected output.
 // Run: pnpm --filter @resume-agent/api exec tsx scripts/demo-repair.ts
 import { z } from "zod";
-import { ExtractedProfileSchema } from "@resume-agent/shared";
+
+// Step 1's hand-written schema, kept inline so this demo stays standalone after Step 2.
+const WorkExperienceSchema = z
+  .object({
+    company: z.string(), title: z.string(), location: z.string().nullable(),
+    startDate: z.string().nullable(), endDate: z.string().nullable(), isCurrent: z.boolean(),
+    highlights: z.array(z.string()),
+  })
+  .refine((w) => !(w.isCurrent && w.endDate), { message: "A current role must have endDate = null", path: ["endDate"] });
+const ExtractedProfileSchema = z.object({
+  fullName: z.string().nullable(), email: z.email().nullable(), phone: z.string().nullable(),
+  headline: z.string().nullable(), currentJobTitle: z.string().nullable(), skills: z.array(z.string()),
+  workExperience: z.array(WorkExperienceSchema),
+});
 import { openai } from "../src/llm/openai.js";
 import { toStrictJsonSchema } from "../src/llm/strictJsonSchema.js";
 import { env } from "../src/env.js";
