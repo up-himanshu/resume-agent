@@ -1,0 +1,12 @@
+{
+  "name": "resume-agent",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:api": "pnpm --filter @resume-agent/api dev",
+    "typecheck": "pnpm -r typecheck",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:psql": "docker compose exec postgres psql -U resume -d resume_agent"
+  }
+}
