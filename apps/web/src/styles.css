@@ -77,3 +77,9 @@ button.link { background: none; border: none; color: var(--accent); padding: 0 4
 .chunk-meta { color: var(--muted); font-size: 11px; margin-bottom: 2px; }
 .chunk-text { margin: 4px 0; white-space: pre-wrap; font-size: 11px; }
 .saved-status { font-size: 12px; overflow-wrap: anywhere; }
+.search-panel .actions { flex-wrap: wrap; }
+.checkbox-label.inline { padding-top: 0; font-size: 12px; }
+.scores { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+.stages { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; font-size: 12px; }
+.stage ol { padding-left: 18px; margin: 4px 0; }
+.stage li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

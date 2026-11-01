@@ -7,6 +7,7 @@ import { resumesRouter } from "./routes/resumes.js";
 import { profilesRouter } from "./routes/profiles.js";
 import { errorHandler } from "./http/errors.js";
 import { log, requestContext } from "./log.js";
+import { loadReranker } from "./rag/reranker.js";
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
@@ -51,4 +52,6 @@ app.listen(env.API_PORT, (err) => {
     process.exit(1);
   }
   console.log(`API listening on http://localhost:${env.API_PORT}`);
+  // Warm the reranker in the background so the first search doesn't pay the model-load time.
+  loadReranker().catch((e) => console.error("Reranker failed to load:", e));
 });

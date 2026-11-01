@@ -5,3 +5,7 @@ packages:
 # pnpm blocks dependency install scripts by default; allow only what we need.
 allowBuilds:
   esbuild: true
+  # Not needed: macOS/Linux CPU binaries ship in the package; the script only fetches GPU builds.
+  onnxruntime-node: false
+  # Not needed: only a version-check script.
+  protobufjs: false

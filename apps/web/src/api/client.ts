@@ -7,9 +7,11 @@ import {
   HealthResponseSchema,
   IngestResponseSchema,
   SaveProfileResponseSchema,
+  SearchResponseSchema,
   type ExtractRequest,
   type IngestRequest,
   type SaveProfileRequest,
+  type SearchRequest,
 } from "@resume-agent/shared";
 
 const http = axios.create({ baseURL: "/api", timeout: 120_000 });
@@ -45,5 +47,7 @@ export const api = {
   extract: (body: ExtractRequest) => request(ExtractResponseSchema, { method: "post", url: "/extract", data: body }),
   ingest: (body: IngestRequest) => request(IngestResponseSchema, { method: "post", url: "/resumes", data: body }),
   chunks: (resumeId: string) => request(ChunkListResponseSchema, { method: "get", url: `/resumes/${resumeId}/chunks` }),
+  search: (resumeId: string, body: SearchRequest) =>
+    request(SearchResponseSchema, { method: "post", url: `/resumes/${resumeId}/search`, data: body }),
   saveProfile: (body: SaveProfileRequest) => request(SaveProfileResponseSchema, { method: "post", url: "/profiles", data: body }),
 };

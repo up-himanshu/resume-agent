@@ -26,6 +26,17 @@ export function useChunks(resumeId: string | undefined) {
   });
 }
 
+// A search is a read, so it's a query (cached by its inputs), not a mutation: repeating a search
+// is instant, and React Query dedupes identical in-flight requests.
+export function useSearch(resumeId: string, query: string | null, rerank: boolean) {
+  return useQuery({
+    queryKey: ["search", resumeId, query, rerank],
+    queryFn: () => api.search(resumeId, { query: query!, k: 5, rerank }),
+    enabled: Boolean(query),
+    staleTime: Infinity,
+  });
+}
+
 export function useSaveProfile() {
   return useMutation({ mutationFn: api.saveProfile });
 }

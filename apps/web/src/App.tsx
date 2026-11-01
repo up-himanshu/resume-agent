@@ -7,6 +7,7 @@ import { ProfileForm } from "./form/ProfileForm.js";
 import { defaultValues, form, formSchema, type ProfileValues } from "./form/schema.js";
 import { SuggestionsPanel } from "./review/SuggestionsPanel.js";
 import { ChunkList } from "./review/ChunkList.js";
+import { SearchPanel } from "./review/SearchPanel.js";
 import type { Span } from "./review/SuggestionCard.js";
 
 export function App() {
@@ -91,6 +92,12 @@ export function App() {
               </summary>
               <ChunkList resumeId={ingest.data.resumeId} />
             </details>
+          )}
+          {ingest.data && (
+            <>
+              <h2>Search your resume (retrieval only)</h2>
+              <SearchPanel resumeId={ingest.data.resumeId} />
+            </>
           )}
 
           <FormProvider {...methods}>

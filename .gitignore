@@ -5,3 +5,6 @@ dist/
 !.env.example
 *.log
 .DS_Store
+
+# Downloaded ML models (cross-encoder reranker)
+.cache/
