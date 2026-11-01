@@ -2,9 +2,14 @@ import axios, { type AxiosRequestConfig } from "axios";
 import type { z } from "zod";
 import {
   ApiErrorSchema,
+  ChunkListResponseSchema,
   ExtractResponseSchema,
   HealthResponseSchema,
+  IngestResponseSchema,
+  SaveProfileResponseSchema,
   type ExtractRequest,
+  type IngestRequest,
+  type SaveProfileRequest,
 } from "@resume-agent/shared";
 
 const http = axios.create({ baseURL: "/api", timeout: 120_000 });
@@ -38,4 +43,7 @@ async function request<T>(schema: z.ZodType<T>, config: AxiosRequestConfig): Pro
 export const api = {
   health: () => request(HealthResponseSchema, { method: "get", url: "/health", validateStatus: () => true }),
   extract: (body: ExtractRequest) => request(ExtractResponseSchema, { method: "post", url: "/extract", data: body }),
+  ingest: (body: IngestRequest) => request(IngestResponseSchema, { method: "post", url: "/resumes", data: body }),
+  chunks: (resumeId: string) => request(ChunkListResponseSchema, { method: "get", url: `/resumes/${resumeId}/chunks` }),
+  saveProfile: (body: SaveProfileRequest) => request(SaveProfileResponseSchema, { method: "post", url: "/profiles", data: body }),
 };

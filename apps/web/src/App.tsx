@@ -2,10 +2,11 @@ import { useCallback, useRef, useState } from "react";
 import { FormProvider, useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import sampleResume from "../../../samples/resume-priya.txt?raw";
-import { useExtract, useHealth } from "./api/hooks.js";
+import { useExtract, useHealth, useIngest, useSaveProfile } from "./api/hooks.js";
 import { ProfileForm } from "./form/ProfileForm.js";
-import { defaultValues, formSchema, type ProfileValues } from "./form/schema.js";
+import { defaultValues, form, formSchema, type ProfileValues } from "./form/schema.js";
 import { SuggestionsPanel } from "./review/SuggestionsPanel.js";
+import { ChunkList } from "./review/ChunkList.js";
 import type { Span } from "./review/SuggestionCard.js";
 
 export function App() {
@@ -16,13 +17,17 @@ export function App() {
   });
   const health = useHealth();
   const extract = useExtract();
+  const ingest = useIngest();
+  const saveProfile = useSaveProfile();
   // Uncontrolled textarea: typing a long resume doesn't re-render the app on each keystroke.
   const resumeRef = useRef<HTMLTextAreaElement>(null);
   const [saved, setSaved] = useState<ProfileValues | null>(null);
 
+  // Two independent requests in parallel: suggestions for the form, and indexing for Q&A.
   const process = () => {
     const resumeText = resumeRef.current?.value ?? "";
     extract.mutate({ resumeText });
+    ingest.mutate({ resumeText });
   };
 
   // Spans refer to the text that was submitted; if the user edited it since, offsets may be off.
@@ -39,7 +44,16 @@ export function App() {
     [extract.variables],
   );
 
-  const onSubmit = methods.handleSubmit((values) => setSaved(values));
+  // Client validation first (fast feedback), then the server validates again before storing.
+  const onSubmit = methods.handleSubmit((values) => {
+    setSaved(values);
+    saveProfile.mutate({
+      resumeId: ingest.data?.resumeId ?? null,
+      formId: form.id,
+      formVersion: form.version,
+      values,
+    });
+  });
 
   return (
     <div className="app">
@@ -63,6 +77,21 @@ export function App() {
             </button>
           </div>
           {extract.isError && <p className="field-error" role="alert">{extract.error.message}</p>}
+          {ingest.isPending && <p className="muted">Indexing resume for Q&amp;A…</p>}
+          {ingest.isError && <p className="field-error" role="alert">Indexing failed: {ingest.error.message}</p>}
+          {ingest.data && (
+            <details className="index-status">
+              <summary>
+                <span className="badge good">Indexed for Q&amp;A</span>{" "}
+                {ingest.data.chunkCounts.parents} parents · {ingest.data.chunkCounts.children} embedded children
+                {ingest.data.reused
+                  ? " · already indexed, reused (no embedding cost)"
+                  : ` · ${ingest.data.embedding?.tokens} tokens · ${ingest.data.embedding?.latencyMs}ms`}
+                {" · "}view chunks
+              </summary>
+              <ChunkList resumeId={ingest.data.resumeId} />
+            </details>
+          )}
 
           <FormProvider {...methods}>
             {extract.data && (
@@ -81,15 +110,24 @@ export function App() {
               <ProfileForm />
               <div className="actions sticky">
                 <button type="submit">Save profile</button>
-                <button type="button" className="secondary" onClick={() => { methods.reset(defaultValues); setSaved(null); }}>
+                <button type="button" className="secondary" onClick={() => { methods.reset(defaultValues); setSaved(null); saveProfile.reset(); }}>
                   Clear
                 </button>
               </div>
             </form>
           </FormProvider>
+          {saveProfile.isPending && <p className="muted">Saving…</p>}
+          {saveProfile.isError && <p className="field-error" role="alert">Save failed: {saveProfile.error.message}</p>}
+          {saveProfile.data && (
+            <p className="saved-status">
+              <span className="badge good">Saved to database</span> profile {saveProfile.data.profileId} at{" "}
+              {new Date(saveProfile.data.savedAt).toLocaleTimeString()}
+              {ingest.data ? `, linked to resume ${ingest.data.resumeId.slice(0, 8)}…` : ", not linked to a resume"}
+            </p>
+          )}
           {saved && (
-            <details className="saved" open>
-              <summary>✓ Profile valid. Submitted values</summary>
+            <details className="saved">
+              <summary>Submitted values</summary>
               <pre>{JSON.stringify(saved, null, 2)}</pre>
             </details>
           )}

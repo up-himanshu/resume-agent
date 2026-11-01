@@ -69,3 +69,11 @@ button.link { background: none; border: none; color: var(--accent); padding: 0 4
 .chip.chip-bad { border-color: var(--bad); }
 .chip-status { padding: 2px 8px; color: var(--muted); }
 .saved pre { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px; overflow: auto; max-height: 300px; font-size: 12px; }
+.index-status { margin: 8px 0; font-size: 12px; }
+.index-status summary { cursor: pointer; }
+.chunks { margin-top: 8px; max-height: 420px; overflow: auto; }
+.chunk-parent { border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 8px; background: var(--surface); }
+.chunk-child { border-left: 3px solid var(--good); padding: 4px 8px; margin: 6px 0 0 8px; }
+.chunk-meta { color: var(--muted); font-size: 11px; margin-bottom: 2px; }
+.chunk-text { margin: 4px 0; white-space: pre-wrap; font-size: 11px; }
+.saved-status { font-size: 12px; overflow-wrap: anywhere; }

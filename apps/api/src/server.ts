@@ -3,6 +3,8 @@ import { HealthResponseSchema, type HealthResponse } from "@resume-agent/shared"
 import { env } from "./env.js";
 import { pool } from "./db.js";
 import { extractRouter } from "./routes/extract.js";
+import { resumesRouter } from "./routes/resumes.js";
+import { profilesRouter } from "./routes/profiles.js";
 import { errorHandler } from "./http/errors.js";
 import { log, requestContext } from "./log.js";
 
@@ -38,6 +40,8 @@ app.get("/health", async (_req, res) => {
 });
 
 app.use(extractRouter);
+app.use(resumesRouter);
+app.use(profilesRouter);
 app.use(errorHandler);
 
 // Express 5 passes bind errors (e.g. EADDRINUSE) to this callback instead of throwing.

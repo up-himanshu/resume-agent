@@ -11,3 +11,21 @@ export function useHealth() {
 export function useExtract() {
   return useMutation({ mutationFn: api.extract });
 }
+
+export function useIngest() {
+  return useMutation({ mutationFn: api.ingest });
+}
+
+// A query keyed by resume id: fetched once per resume, cached, and only enabled once we have an id.
+export function useChunks(resumeId: string | undefined) {
+  return useQuery({
+    queryKey: ["chunks", resumeId],
+    queryFn: () => api.chunks(resumeId!),
+    enabled: Boolean(resumeId),
+    staleTime: Infinity, // chunks of a stored resume never change
+  });
+}
+
+export function useSaveProfile() {
+  return useMutation({ mutationFn: api.saveProfile });
+}
