@@ -10,6 +10,8 @@
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:psql": "docker compose exec postgres psql -U resume -d resume_agent",
-    "db:migrate": "pnpm --filter @resume-agent/api exec tsx scripts/migrate.ts"
+    "db:migrate": "pnpm --filter @resume-agent/api exec tsx scripts/migrate.ts",
+    "mcp": "pnpm --filter @resume-agent/api mcp",
+    "mcp:inspect": "pnpm --filter @resume-agent/api mcp:inspect"
   }
 }

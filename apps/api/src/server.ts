@@ -5,6 +5,7 @@ import { pool } from "./db.js";
 import { extractRouter } from "./routes/extract.js";
 import { resumesRouter } from "./routes/resumes.js";
 import { profilesRouter } from "./routes/profiles.js";
+import { mcpRouter } from "./mcp/http.js";
 import { errorHandler } from "./http/errors.js";
 import { log, requestContext } from "./log.js";
 import { loadReranker } from "./rag/reranker.js";
@@ -43,6 +44,7 @@ app.get("/health", async (_req, res) => {
 app.use(extractRouter);
 app.use(resumesRouter);
 app.use(profilesRouter);
+app.use(mcpRouter);
 app.use(errorHandler);
 
 // Express 5 passes bind errors (e.g. EADDRINUSE) to this callback instead of throwing.

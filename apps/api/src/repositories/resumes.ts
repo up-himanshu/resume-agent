@@ -122,3 +122,18 @@ export async function listResumes(db: Db = pool): Promise<ResumeSummary[]> {
     };
   });
 }
+
+export async function getResumeContent(resumeId: string, db: Db = pool): Promise<string | null> {
+  const { rows } = await db.query<{ content: string }>("SELECT content FROM resumes WHERE id = $1", [resumeId]);
+  return rows[0]?.content ?? null;
+}
+
+/** Whole entries (parent chunks) per section, in resume order. Used when an agent needs a full section, not top-k. */
+export async function listEntries(resumeId: string, db: Db = pool) {
+  const { rows } = await db.query<{ section: string; source_text: string }>(
+    `SELECT section, source_text FROM resume_chunks
+     WHERE resume_id = $1 AND kind = 'parent' ORDER BY chunk_index`,
+    [resumeId],
+  );
+  return rows.map((r) => ({ section: r.section, text: r.source_text }));
+}

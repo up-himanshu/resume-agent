@@ -11,6 +11,19 @@ export const requestContext: RequestHandler = (_req, _res, next) => {
   context.run({ requestId: randomUUID().slice(0, 8) }, next);
 };
 
+// Where log lines go. stdout by default; the stdio MCP server switches this to stderr, because
+// there stdout IS the protocol channel and a stray log line would corrupt a JSON-RPC message.
+let write = (line: string) => console.log(line);
+
+export function sendLogsToStderr(): void {
+  write = (line) => console.error(line);
+}
+
+/** Gives fn a request id when it doesn't already have one (e.g. MCP over stdio, which has no Express request). */
+export function withRequestContext<T>(fn: () => T): T {
+  return context.getStore() ? fn() : context.run({ requestId: randomUUID().slice(0, 8) }, fn);
+}
+
 function prefix(scope: string): string {
   const time = new Date().toISOString().slice(11, 23);
   const requestId = context.getStore()?.requestId ?? "--------";
@@ -26,15 +39,15 @@ function indent(text: string): string {
 
 /** One step of the pipeline, in plain English, optionally followed by its data. */
 export function log(scope: string, message: string, data?: unknown): void {
-  console.log(`${prefix(scope)} ${message}`);
+  write(`${prefix(scope)} ${message}`);
   if (data !== undefined) {
-    console.log(indent(typeof data === "string" ? data : JSON.stringify(data, null, 2)));
+    write(indent(typeof data === "string" ? data : JSON.stringify(data, null, 2)));
   }
 }
 
 /** A large piece of text (a prompt, a resume, raw model output), framed so it's easy to spot. */
 export function logBlock(scope: string, title: string, text: string): void {
-  console.log(`${prefix(scope)} ┌── ${title} (${text.length} chars) ──`);
-  console.log(indent(text));
-  console.log(`${prefix(scope)} └── end of ${title} ──`);
+  write(`${prefix(scope)} ┌── ${title} (${text.length} chars) ──`);
+  write(indent(text));
+  write(`${prefix(scope)} └── end of ${title} ──`);
 }
