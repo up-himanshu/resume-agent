@@ -83,3 +83,11 @@ button.link { background: none; border: none; color: var(--accent); padding: 0 4
 .stages { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; font-size: 12px; }
 .stage ol { padding-left: 18px; margin: 4px 0; }
 .stage li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker select { width: 100%; margin-bottom: 8px; }
+.answer { margin-top: 8px; }
+.claim { margin: 4px 0; }
+.claim.unsupported { color: var(--bad); }
+button.cite { font-size: 11px; padding: 0 5px; margin-left: 2px; border-radius: 4px; vertical-align: 1px; }
+button.cite.bad { background: var(--bad-bg); color: var(--bad); }
+.chunk-parent.active { border-color: var(--accent); }
+mark { background: var(--good-bg); color: inherit; border-radius: 2px; }

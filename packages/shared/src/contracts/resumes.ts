@@ -36,3 +36,18 @@ export const ChunkListResponseSchema = z.object({
   chunks: z.array(ChunkSchema),
 });
 export type ChunkListResponse = z.infer<typeof ChunkListResponseSchema>;
+
+/** One row in the saved-resume picker. */
+export const ResumeSummarySchema = z.object({
+  resumeId: z.uuid(),
+  /** Latest saved profile's fullName, else the resume's first non-empty line. */
+  label: z.string(),
+  createdAt: z.iso.datetime({ offset: true }),
+  embeddingModel: z.string(),
+  childChunks: z.number(),
+  profileCount: z.number(),
+});
+export type ResumeSummary = z.infer<typeof ResumeSummarySchema>;
+
+export const ResumeListResponseSchema = z.object({ resumes: z.array(ResumeSummarySchema) });
+export type ResumeListResponse = z.infer<typeof ResumeListResponseSchema>;

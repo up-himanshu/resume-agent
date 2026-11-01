@@ -1,5 +1,5 @@
 import type pg from "pg";
-import type { Chunk } from "@resume-agent/shared";
+import type { Chunk, ResumeSummary } from "@resume-agent/shared";
 import { pool } from "../db.js";
 import { toPgVector } from "../rag/embeddings.js";
 
@@ -88,4 +88,37 @@ export async function listChunks(resumeId: string, db: Db = pool): Promise<Chunk
     charEnd: r.char_end,
     hasEmbedding: r.has_embedding,
   }));
+}
+
+/** Saved resumes for the picker, newest first. Label prefers what the user confirmed in a saved profile. */
+export async function listResumes(db: Db = pool): Promise<ResumeSummary[]> {
+  const { rows } = await db.query<{
+    id: string;
+    created_at: Date;
+    embedding_model: string;
+    head: string;
+    profile_name: string | null;
+    child_chunks: number;
+    profile_count: number;
+  }>(
+    `SELECT r.id, r.created_at, r.embedding_model, left(r.content, 300) AS head,
+            (SELECT nullif(p.data->>'fullName', '') FROM profiles p
+              WHERE p.resume_id = r.id ORDER BY p.created_at DESC LIMIT 1) AS profile_name,
+            (SELECT count(*)::int FROM resume_chunks c WHERE c.resume_id = r.id AND c.kind = 'child') AS child_chunks,
+            (SELECT count(*)::int FROM profiles p WHERE p.resume_id = r.id) AS profile_count
+     FROM resumes r
+     ORDER BY r.created_at DESC
+     LIMIT 100`,
+  );
+  return rows.map((r) => {
+    const firstLine = r.head.split("\n").map((l) => l.trim()).find(Boolean) ?? "Untitled resume";
+    return {
+      resumeId: r.id,
+      label: r.profile_name ?? (firstLine.length > 60 ? `${firstLine.slice(0, 57)}...` : firstLine),
+      createdAt: r.created_at.toISOString(),
+      embeddingModel: r.embedding_model,
+      childChunks: r.child_chunks,
+      profileCount: r.profile_count,
+    };
+  });
 }

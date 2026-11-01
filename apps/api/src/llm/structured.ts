@@ -38,7 +38,7 @@ export async function generateStructured<S extends z.ZodType>(opts: {
   const jsonSchema = toStrictJsonSchema(opts.schema);
   log(scope, `Converted the Zod schema into a strict JSON Schema (${JSON.stringify(jsonSchema).length} chars). The model is forced to return exactly this shape (constrained decoding). Every "description" in it is read by the model as an instruction.`);
   logBlock(scope, `JSON Schema "${opts.name}" sent as response_format`, JSON.stringify(jsonSchema, null, 2));
-  logBlock(scope, "User message (resume + task)", opts.user);
+  logBlock(scope, "User message (data + task)", opts.user);
   const messages: ChatMessage[] = [
     { role: "system", content: opts.system },
     { role: "user", content: opts.user },

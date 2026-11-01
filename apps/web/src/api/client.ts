@@ -2,12 +2,15 @@ import axios, { type AxiosRequestConfig } from "axios";
 import type { z } from "zod";
 import {
   ApiErrorSchema,
+  AskResponseSchema,
   ChunkListResponseSchema,
   ExtractResponseSchema,
   HealthResponseSchema,
   IngestResponseSchema,
+  ResumeListResponseSchema,
   SaveProfileResponseSchema,
   SearchResponseSchema,
+  type AskRequest,
   type ExtractRequest,
   type IngestRequest,
   type SaveProfileRequest,
@@ -46,8 +49,11 @@ export const api = {
   health: () => request(HealthResponseSchema, { method: "get", url: "/health", validateStatus: () => true }),
   extract: (body: ExtractRequest) => request(ExtractResponseSchema, { method: "post", url: "/extract", data: body }),
   ingest: (body: IngestRequest) => request(IngestResponseSchema, { method: "post", url: "/resumes", data: body }),
+  resumes: () => request(ResumeListResponseSchema, { method: "get", url: "/resumes" }),
   chunks: (resumeId: string) => request(ChunkListResponseSchema, { method: "get", url: `/resumes/${resumeId}/chunks` }),
   search: (resumeId: string, body: SearchRequest) =>
     request(SearchResponseSchema, { method: "post", url: `/resumes/${resumeId}/search`, data: body }),
+  ask: (resumeId: string, body: AskRequest) =>
+    request(AskResponseSchema, { method: "post", url: `/resumes/${resumeId}/ask`, data: body }),
   saveProfile: (body: SaveProfileRequest) => request(SaveProfileResponseSchema, { method: "post", url: "/profiles", data: body }),
 };

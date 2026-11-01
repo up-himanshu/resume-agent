@@ -2,13 +2,16 @@ import { useCallback, useRef, useState } from "react";
 import { FormProvider, useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import sampleResume from "../../../samples/resume-priya.txt?raw";
-import { useExtract, useHealth, useIngest, useSaveProfile } from "./api/hooks.js";
+import { useExtract, useHealth, useIngest, useResumes, useSaveProfile } from "./api/hooks.js";
 import { ProfileForm } from "./form/ProfileForm.js";
 import { defaultValues, form, formSchema, type ProfileValues } from "./form/schema.js";
 import { SuggestionsPanel } from "./review/SuggestionsPanel.js";
 import { ChunkList } from "./review/ChunkList.js";
 import { SearchPanel } from "./review/SearchPanel.js";
 import type { Span } from "./review/SuggestionCard.js";
+import { AskPanel } from "./qa/AskPanel.js";
+import { ResumePicker } from "./qa/ResumePicker.js";
+import { useActiveResume } from "./qa/useActiveResume.js";
 
 export function App() {
   const methods = useForm<ProfileValues>({
@@ -23,12 +26,18 @@ export function App() {
   // Uncontrolled textarea: typing a long resume doesn't re-render the app on each keystroke.
   const resumeRef = useRef<HTMLTextAreaElement>(null);
   const [saved, setSaved] = useState<ProfileValues | null>(null);
+  // The resume search and Q&A act on: picked from saved resumes, or the one just processed.
+  const [activeResumeId, selectResume] = useActiveResume();
+  // Same query as the picker's, so React Query serves it from cache. Hides the panels for an id
+  // from the URL that isn't in the database.
+  const resumes = useResumes();
+  const activeKnown = resumes.data?.resumes.some((r) => r.resumeId === activeResumeId) ?? false;
 
   // Two independent requests in parallel: suggestions for the form, and indexing for Q&A.
   const process = () => {
     const resumeText = resumeRef.current?.value ?? "";
     extract.mutate({ resumeText });
-    ingest.mutate({ resumeText });
+    ingest.mutate({ resumeText }, { onSuccess: (data) => selectResume(data.resumeId) });
   };
 
   // Spans refer to the text that was submitted; if the user edited it since, offsets may be off.
@@ -81,23 +90,30 @@ export function App() {
           {ingest.isPending && <p className="muted">Indexing resume for Q&amp;A…</p>}
           {ingest.isError && <p className="field-error" role="alert">Indexing failed: {ingest.error.message}</p>}
           {ingest.data && (
-            <details className="index-status">
-              <summary>
-                <span className="badge good">Indexed for Q&amp;A</span>{" "}
-                {ingest.data.chunkCounts.parents} parents · {ingest.data.chunkCounts.children} embedded children
-                {ingest.data.reused
-                  ? " · already indexed, reused (no embedding cost)"
-                  : ` · ${ingest.data.embedding?.tokens} tokens · ${ingest.data.embedding?.latencyMs}ms`}
-                {" · "}view chunks
-              </summary>
-              <ChunkList resumeId={ingest.data.resumeId} />
-            </details>
+            <p className="index-status">
+              <span className="badge good">Indexed for Q&amp;A</span>{" "}
+              {ingest.data.chunkCounts.parents} parents · {ingest.data.chunkCounts.children} embedded children
+              {ingest.data.reused
+                ? " · already indexed, reused (no embedding cost)"
+                : ` · ${ingest.data.embedding?.tokens} tokens · ${ingest.data.embedding?.latencyMs}ms`}
+            </p>
           )}
-          {ingest.data && (
-            <>
-              <h2>Search your resume (retrieval only)</h2>
-              <SearchPanel resumeId={ingest.data.resumeId} />
-            </>
+
+          <h2>Ask about a resume</h2>
+          <ResumePicker value={activeResumeId} onChange={selectResume} />
+          {activeResumeId && activeKnown && (
+            // key: switching resumes remounts the panels, so no answer or search from the previous one lingers.
+            <div key={activeResumeId}>
+              <AskPanel resumeId={activeResumeId} />
+              <details>
+                <summary className="muted">Retrieval only: search without an LLM answer</summary>
+                <SearchPanel resumeId={activeResumeId} />
+              </details>
+              <details>
+                <summary className="muted">View how this resume was chunked</summary>
+                <ChunkList resumeId={activeResumeId} />
+              </details>
+            </div>
           )}
 
           <FormProvider {...methods}>

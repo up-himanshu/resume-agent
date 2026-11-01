@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client.js";
 
 // Server state lives in React Query, not in component state: caching, refetching, loading and
@@ -13,7 +13,13 @@ export function useExtract() {
 }
 
 export function useIngest() {
-  return useMutation({ mutationFn: api.ingest });
+  const queryClient = useQueryClient();
+  // A newly indexed resume should show up in the picker: mark the cached list stale so it refetches.
+  return useMutation({ mutationFn: api.ingest, onSuccess: () => queryClient.invalidateQueries({ queryKey: ["resumes"] }) });
+}
+
+export function useResumes() {
+  return useQuery({ queryKey: ["resumes"], queryFn: api.resumes });
 }
 
 // A query keyed by resume id: fetched once per resume, cached, and only enabled once we have an id.
@@ -37,6 +43,14 @@ export function useSearch(resumeId: string, query: string | null, rerank: boolea
   });
 }
 
+// Asking is a mutation even though it reads: the answer is generated (non-deterministic, costs
+// tokens), so it should run only when the user clicks, and asking again should really ask again.
+export function useAsk(resumeId: string) {
+  return useMutation({ mutationFn: (question: string) => api.ask(resumeId, { question }) });
+}
+
 export function useSaveProfile() {
-  return useMutation({ mutationFn: api.saveProfile });
+  const queryClient = useQueryClient();
+  // The picker labels resumes by their latest saved profile's name.
+  return useMutation({ mutationFn: api.saveProfile, onSuccess: () => queryClient.invalidateQueries({ queryKey: ["resumes"] }) });
 }
