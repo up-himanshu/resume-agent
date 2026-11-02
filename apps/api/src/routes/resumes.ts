@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { z } from "zod";
 import {
+  AgentRequestSchema,
+  AgentResponseSchema,
   AskRequestSchema,
   AskResponseSchema,
   ChunkListResponseSchema,
@@ -17,6 +19,7 @@ import { resumeExists } from "../repositories/profiles.js";
 import { hybridSearch } from "../rag/retrieval.js";
 import { ingestResume } from "../services/ingestion.js";
 import { answerQuestion } from "../services/answering.js";
+import { runAgent } from "../agent/agent.js";
 
 export const resumesRouter = Router();
 
@@ -55,4 +58,13 @@ resumesRouter.post("/resumes/:id/ask", async (req, res) => {
   if (!(await resumeExists(id))) throw new HttpError(404, "NOT_FOUND", `Resume ${id} not found`);
   log("route", `Received POST /resumes/${id}/ask: "${question}"`);
   res.json(AskResponseSchema.parse(await answerQuestion(id, question, k)));
+});
+
+// Agentic RAG: the model drives retrieval through MCP tools in a bounded loop.
+resumesRouter.post("/resumes/:id/agent", async (req, res) => {
+  const { id } = parseOrThrow(z.object({ id: z.uuid() }), req.params);
+  const { question, maxTurns } = parseOrThrow(AgentRequestSchema, req.body);
+  if (!(await resumeExists(id))) throw new HttpError(404, "NOT_FOUND", `Resume ${id} not found`);
+  log("route", `Received POST /resumes/${id}/agent: "${question}"`);
+  res.json(AgentResponseSchema.parse(await runAgent(id, question, maxTurns)));
 });

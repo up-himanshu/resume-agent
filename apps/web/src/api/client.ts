@@ -1,6 +1,7 @@
 import axios, { type AxiosRequestConfig } from "axios";
 import type { z } from "zod";
 import {
+  AgentResponseSchema,
   ApiErrorSchema,
   AskResponseSchema,
   ChunkListResponseSchema,
@@ -10,6 +11,7 @@ import {
   ResumeListResponseSchema,
   SaveProfileResponseSchema,
   SearchResponseSchema,
+  type AgentRequest,
   type AskRequest,
   type ExtractRequest,
   type IngestRequest,
@@ -55,5 +57,7 @@ export const api = {
     request(SearchResponseSchema, { method: "post", url: `/resumes/${resumeId}/search`, data: body }),
   ask: (resumeId: string, body: AskRequest) =>
     request(AskResponseSchema, { method: "post", url: `/resumes/${resumeId}/ask`, data: body }),
+  agent: (resumeId: string, body: AgentRequest) =>
+    request(AgentResponseSchema, { method: "post", url: `/resumes/${resumeId}/agent`, data: body }),
   saveProfile: (body: SaveProfileRequest) => request(SaveProfileResponseSchema, { method: "post", url: "/profiles", data: body }),
 };

@@ -91,3 +91,9 @@ button.cite { font-size: 11px; padding: 0 5px; margin-left: 2px; border-radius: 
 button.cite.bad { background: var(--bad-bg); color: var(--bad); }
 .chunk-parent.active { border-color: var(--accent); }
 mark { background: var(--good-bg); color: inherit; border-radius: 2px; }
+.mode-toggle { gap: 12px; }
+.trace { font-size: 12px; padding-left: 0; list-style: none; margin: 4px 0 8px; }
+.trace li { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-bottom: 3px; }
+.trace .badge { white-space: normal; overflow-wrap: anywhere; }
+.mode-toggle label { flex: 0 0 auto; white-space: nowrap; }
+.mode-toggle input[type="radio"] { width: auto; }

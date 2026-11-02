@@ -4,4 +4,5 @@ export * from "./contracts/resumes.js";
 export * from "./contracts/profiles.js";
 export * from "./contracts/search.js";
 export * from "./contracts/answer.js";
+export * from "./contracts/agent.js";
 export * from "./fields/index.js";
