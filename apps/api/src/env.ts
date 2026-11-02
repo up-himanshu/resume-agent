@@ -17,6 +17,10 @@ const EnvSchema = z.object({
   OPENAI_EMBEDDING_MODEL: z.string().min(1),
   DATABASE_URL: z.url(),
   API_PORT: z.coerce.number().int().positive().default(4000),
+  // Tracing is optional: without these keys the app runs exactly the same, just untraced.
+  LANGFUSE_PUBLIC_KEY: z.string().startsWith("pk-lf-").optional(),
+  LANGFUSE_SECRET_KEY: z.string().startsWith("sk-lf-").optional(),
+  LANGFUSE_BASE_URL: z.url().default("https://cloud.langfuse.com"),
 });
 
 const parsed = EnvSchema.safeParse(process.env);

@@ -23,6 +23,7 @@ function RagAnswer({ data }: { data: AskResponse }) {
       claims={data.claims}
       missing={data.missing}
       unsupportedClaims={data.meta.unsupportedClaims}
+      trace={data.trace}
       sourcesLabel="Sources the model saw"
       sources={data.sources.map((s) => ({
         id: s.sourceId,
@@ -43,6 +44,7 @@ function AgentAnswer({ data }: { data: AgentResponse }) {
       claims={data.claims}
       missing={data.missing}
       unsupportedClaims={data.meta.unsupportedClaims}
+      trace={data.trace}
       sourcesLabel="Tool results the agent read"
       sources={data.toolCalls.map((t) => ({
         id: t.id,

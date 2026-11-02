@@ -1,3 +1,4 @@
+import { TraceRefSchema } from "./trace.js";
 import { z } from "zod";
 import { GroundingSchema, LlmUsageSchema } from "./extract.js";
 
@@ -50,6 +51,7 @@ export const AskResponseSchema = z.object({
   /** What the question asks that the sources don't cover (for "partial" and "not_in_resume"). */
   missing: z.string().nullable(),
   sources: z.array(AnswerSourceSchema),
+  trace: TraceRefSchema.nullable(),
   meta: z.object({
     model: z.string().nullable(),
     attempts: z.number(),

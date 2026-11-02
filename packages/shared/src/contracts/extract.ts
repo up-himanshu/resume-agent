@@ -1,3 +1,4 @@
+import { TraceRefSchema } from "./trace.js";
 import { z } from "zod";
 
 export const ExtractionStrategySchema = z.enum(["per-section", "single"]);
@@ -48,6 +49,7 @@ export type LlmUsage = z.infer<typeof LlmUsageSchema>;
 export const ExtractResponseSchema = z.object({
   formId: z.string(),
   suggestions: z.array(SuggestionSchema),
+  trace: TraceRefSchema.nullable(),
   meta: z.object({
     model: z.string(),
     strategy: ExtractionStrategySchema,

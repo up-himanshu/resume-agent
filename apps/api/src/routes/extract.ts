@@ -3,6 +3,7 @@ import { ExtractRequestSchema, ExtractResponseSchema } from "@resume-agent/share
 import { parseOrThrow } from "../http/errors.js";
 import { log, logBlock } from "../log.js";
 import { extractSuggestions } from "../services/extraction.js";
+import { traceRef, withTrace } from "../observability/tracing.js";
 
 export const extractRouter = Router();
 
@@ -14,7 +15,11 @@ extractRouter.post("/extract", async (req, res) => {
   log("route", `STEP 2/6: Request body passed Zod validation (resume is 50 to 50,000 chars after trimming). Using strategy "${strategy}".`);
   logBlock("route", "Resume text as received", resumeText);
 
-  const result = await extractSuggestions(resumeText, strategy);
+  // One trace per extraction. traceRef() runs inside it, so the response can link to its own trace.
+  const result = await withTrace("extract-profile", { tags: ["extraction", strategy], input: { resumeText, strategy } }, async () => ({
+    ...(await extractSuggestions(resumeText, strategy)),
+    trace: await traceRef(),
+  }));
 
   // Validate our own response against the shared contract before sending it.
   const body = ExtractResponseSchema.parse(result);

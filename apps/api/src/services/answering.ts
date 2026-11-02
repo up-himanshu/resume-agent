@@ -4,6 +4,7 @@ import { generateStructured } from "../llm/structured.js";
 import { hybridSearch } from "../rag/retrieval.js";
 import { log, logBlock } from "../log.js";
 import { locateQuote } from "./grounding.js";
+import { activeTraceId, score, traceStep } from "../observability/tracing.js";
 
 // RAG answer with citations: retrieve -> build numbered sources -> generate a cited answer ->
 // verify every citation ourselves. The model's citations are claims too, so we check them.
@@ -92,7 +93,7 @@ function answerSchema(sourceIds: [string, ...string[]]) {
     });
 }
 
-export async function answerQuestion(resumeId: string, question: string, k: number): Promise<AskResponse> {
+export async function answerQuestion(resumeId: string, question: string, k: number): Promise<Omit<AskResponse, "trace">> {
   const scope = "answer";
   const t0 = performance.now();
   const zeroUsage: LlmUsage = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0 };
@@ -145,23 +146,32 @@ export async function answerQuestion(resumeId: string, question: string, k: numb
   const tGeneration = performance.now();
 
   log(scope, "STEP 4/4: Verifying each citation: is its quote really in the source it points to? (Same check as extraction evidence.)");
-  const sourceById = new Map(sources.map((s) => [s.sourceId, s]));
-  const claims: Claim[] = result.data.claims.map((c, i) => {
-    const citations = c.citations.map((cit) => {
-      const { grounding, span } = locateQuote(sourceById.get(cit.sourceId)!.text, cit.quote);
-      return { sourceId: cit.sourceId, quote: cit.quote, grounding, span };
-    });
-    const supported = citations.some((cit) => cit.grounding === "exact" || cit.grounding === "normalized");
-    log(
-      scope,
-      [
-        `Claim ${i + 1}: "${c.text}"`,
-        ...citations.map((cit) => `  [${cit.sourceId}] "${cit.quote}" -> ${cit.grounding}`),
-        `  => ${supported ? "SUPPORTED" : "UNSUPPORTED: no quote was found in its cited source, treat this claim as a possible hallucination"}`,
-      ].join("\n"),
-    );
-    return { text: c.text, citations, supported };
-  });
+  // A guardrail: a deterministic check on the model's output. In the trace it sits right after the
+  // generation, so you can see which quotes failed and why.
+  const claims = await traceStep(
+    "verify-citations",
+    { asType: "guardrail", input: result.data.claims, output: (cs) => cs.map((c) => ({ text: c.text, supported: c.supported, groundings: c.citations.map((x) => x.grounding) })) },
+    async () => {
+      const sourceById = new Map(sources.map((s) => [s.sourceId, s]));
+      const verified: Claim[] = result.data.claims.map((c, i) => {
+        const citations = c.citations.map((cit) => {
+          const { grounding, span } = locateQuote(sourceById.get(cit.sourceId)!.text, cit.quote);
+          return { sourceId: cit.sourceId, quote: cit.quote, grounding, span };
+        });
+        const supported = citations.some((cit) => cit.grounding === "exact" || cit.grounding === "normalized");
+        log(
+          scope,
+          [
+            `Claim ${i + 1}: "${c.text}"`,
+            ...citations.map((cit) => `  [${cit.sourceId}] "${cit.quote}" -> ${cit.grounding}`),
+            `  => ${supported ? "SUPPORTED" : "UNSUPPORTED: no quote was found in its cited source, treat this claim as a possible hallucination"}`,
+          ].join("\n"),
+        );
+        return { text: c.text, citations, supported };
+      });
+      return verified;
+    },
+  );
   const unsupportedClaims = claims.filter((c) => !c.supported).length;
 
   const timingsMs = {
@@ -169,6 +179,11 @@ export async function answerQuestion(resumeId: string, question: string, k: numb
     generation: Math.round(tGeneration - tRetrieval),
     total: Math.round(performance.now() - t0),
   };
+  // Scores on the trace: filterable in Langfuse ("show me answers with unsupported claims") and the
+  // raw material for evals in Step 10.
+  const traceId = activeTraceId();
+  score(traceId, "answer_status", result.data.status, { dataType: "CATEGORICAL" });
+  score(traceId, "unsupported_claims", unsupportedClaims, { dataType: "NUMERIC" });
   log(scope, `Answer status "${result.data.status}" with ${claims.length} claim(s), ${unsupportedClaims} unsupported. Missing: ${result.data.missing ?? "(nothing)"}. Timings: ${JSON.stringify(timingsMs)}.`);
 
   return {

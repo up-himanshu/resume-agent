@@ -4,6 +4,7 @@ import { z } from "zod";
 import { hybridSearch } from "../rag/retrieval.js";
 import { getResumeContent, listEntries, listResumes } from "../repositories/resumes.js";
 import { log, withRequestContext } from "../log.js";
+import { activeTraceId, traceStep, withTrace } from "../observability/tracing.js";
 
 // MCP exposes the same retrieval the web app uses as a standard interface any MCP host can call:
 // Claude Desktop, Claude Code, the Inspector, or our own agent (Step 8). One server definition,
@@ -38,7 +39,11 @@ function traced<A>(name: string, fn: (args: A) => Promise<CallToolResult>) {
     withRequestContext(async () => {
       const startedAt = performance.now();
       log(SCOPE, `Tool "${name}" called with ${JSON.stringify(args)}`);
-      const result = await fn(args);
+      // Called by our agent: nest under its trace. Called by an external host (Claude, Inspector):
+      // start a trace of its own, so MCP usage is observable too.
+      const run = () =>
+        traceStep(`mcp:${name}`, { asType: "tool", input: args, output: (r) => r.structuredContent ?? r.content }, () => fn(args));
+      const result = activeTraceId() ? await run() : await withTrace(`mcp:${name}`, { tags: ["mcp"], input: args }, run);
       log(SCOPE, `Tool "${name}" finished in ${Math.round(performance.now() - startedAt)}ms${result.isError ? " with an error" : ""}.`);
       return result;
     });

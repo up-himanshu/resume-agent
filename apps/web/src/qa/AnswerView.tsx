@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
-import type { AnswerStatus, Citation, Claim } from "@resume-agent/shared";
+import type { AnswerStatus, Citation, Claim, TraceRef } from "@resume-agent/shared";
+import { TraceLink } from "./TraceLink.js";
 
 /** What a citation can point at: a retrieved entry (RAG) or a tool call's output (agent). */
 export interface AnswerSourceView {
@@ -38,6 +39,7 @@ export function AnswerView(props: {
   sources: AnswerSourceView[];
   sourcesLabel: string;
   stats: ReactNode;
+  trace: TraceRef | null;
   children?: ReactNode;
 }) {
   const [highlight, setHighlight] = useState<Citation | null>(null);
@@ -70,6 +72,7 @@ export function AnswerView(props: {
       ))}
       {props.missing && <p className="muted">Not covered: {props.missing}</p>}
       <p className="muted">{props.stats}</p>
+      <p><TraceLink trace={props.trace} feedback /></p>
       {props.children}
       <details open={highlight !== null}>
         <summary className="muted">{props.sourcesLabel} ({props.sources.length}). Click a citation to highlight its quote.</summary>

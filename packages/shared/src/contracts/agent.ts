@@ -1,3 +1,4 @@
+import { TraceRefSchema } from "./trace.js";
 import { z } from "zod";
 import { AnswerStatusSchema, ClaimSchema } from "./answer.js";
 import { LlmUsageSchema } from "./extract.js";
@@ -46,6 +47,7 @@ export const AgentResponseSchema = z.object({
   missing: z.string().nullable(),
   toolCalls: z.array(AgentToolCallSchema),
   turns: z.array(AgentTurnSchema),
+  trace: TraceRefSchema.nullable(),
   meta: z.object({
     model: z.string(),
     stopReason: AgentStopReasonSchema,

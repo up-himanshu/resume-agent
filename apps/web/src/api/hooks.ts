@@ -53,6 +53,10 @@ export function useAgent(resumeId: string) {
   return useMutation({ mutationFn: (question: string) => api.agent(resumeId, { question }) });
 }
 
+export function useFeedback() {
+  return useMutation({ mutationFn: api.feedback });
+}
+
 export function useSaveProfile() {
   const queryClient = useQueryClient();
   // The picker labels resumes by their latest saved profile's name.

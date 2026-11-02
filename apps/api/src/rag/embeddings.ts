@@ -1,5 +1,6 @@
 import { openai } from "../llm/openai.js";
 import { env } from "../env.js";
+import { startActiveObservation } from "@langfuse/tracing";
 import { log } from "../log.js";
 
 // Must match the vector(1536) column. Vectors from different models (or sizes) live in different
@@ -25,7 +26,17 @@ export async function embedTexts(texts: string[], scope = "embed"): Promise<Embe
   for (let i = 0; i < texts.length; i += BATCH_SIZE) {
     const batch = texts.slice(i, i + BATCH_SIZE);
     log(scope, `Calling OpenAI embeddings ("${env.OPENAI_EMBEDDING_MODEL}") for ${batch.length} text(s) in one batched request (texts ${i + 1}-${i + batch.length} of ${texts.length}).`);
-    const res = await openai.embeddings.create({ model: env.OPENAI_EMBEDDING_MODEL, input: batch });
+    const res = await startActiveObservation(
+      "openai-embeddings",
+      async (obs) => {
+        obs.update({ model: env.OPENAI_EMBEDDING_MODEL, input: batch, metadata: { batchStart: i, batchSize: batch.length } });
+        const r = await openai.embeddings.create({ model: env.OPENAI_EMBEDDING_MODEL, input: batch });
+        // Output: just the shape. 1536 floats per text would bloat the trace and mean nothing to a human.
+        obs.update({ model: r.model, output: { vectors: r.data.length, dimensions: r.data[0]?.embedding.length }, usageDetails: { input: r.usage.prompt_tokens } });
+        return r;
+      },
+      { asType: "embedding" },
+    );
     // Results carry an index; sort so vector i always belongs to text i.
     for (const item of [...res.data].sort((a, b) => a.index - b.index)) vectors.push(item.embedding);
     tokens += res.usage.prompt_tokens;

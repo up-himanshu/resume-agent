@@ -2,6 +2,7 @@ import { memo, useCallback, useMemo, useState } from "react";
 import { useFormContext } from "react-hook-form";
 import type { ExtractResponse, Suggestion } from "@resume-agent/shared";
 import { form, type ProfileValues } from "../form/schema.js";
+import { TraceLink } from "../qa/TraceLink.js";
 import { SuggestionCard, TagSuggestions, type ReviewStatus, type Span } from "./SuggestionCard.js";
 
 interface Props {
@@ -55,6 +56,7 @@ export const SuggestionsPanel = memo(function SuggestionsPanel({ result, onShowE
         <span className="muted">
           {(result.meta.latencyMs / 1000).toFixed(1)}s · {result.meta.usage.inputTokens + result.meta.usage.outputTokens} tokens · {result.meta.strategy}
         </span>
+        <TraceLink trace={result.trace} />
       </div>
       {result.meta.calls.filter((c) => c.error).map((c) => (
         <p key={c.group} className="field-error">Section “{c.group}” failed: {c.error}</p>

@@ -4,7 +4,8 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { AgentResponse, AgentToolCall, AgentTurn, Claim, LlmUsage } from "@resume-agent/shared";
-import { openai } from "../llm/openai.js";
+import { tracedChatCompletion } from "../llm/openai.js";
+import { activeTraceId, score, traceStep } from "../observability/tracing.js";
 import { toStrictJsonSchema } from "../llm/strictJsonSchema.js";
 import { env } from "../env.js";
 import { HttpError } from "../http/errors.js";
@@ -128,7 +129,23 @@ async function connectMcp(): Promise<Client> {
   return client;
 }
 
-export async function runAgent(resumeId: string, question: string, maxTurns: number): Promise<AgentResponse> {
+type AgentResult = Omit<AgentResponse, "trace">;
+
+/** The whole run is one "agent" observation; turns (generations) and tool calls nest inside it. */
+export function runAgent(resumeId: string, question: string, maxTurns: number): Promise<AgentResult> {
+  return traceStep(
+    "resume-agent",
+    {
+      asType: "agent",
+      input: { question, maxTurns },
+      output: (r) => ({ status: r.status, claims: r.claims.map((c) => c.text), missing: r.missing, stopReason: r.meta.stopReason }),
+      metadata: { resumeId },
+    },
+    () => runAgentLoop(resumeId, question, maxTurns),
+  );
+}
+
+async function runAgentLoop(resumeId: string, question: string, maxTurns: number): Promise<AgentResult> {
   const startedAt = performance.now();
   const usage: LlmUsage = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0 };
   const toolCalls: AgentToolCall[] = [];
@@ -167,16 +184,21 @@ export async function runAgent(resumeId: string, question: string, maxTurns: num
       const t0 = performance.now();
       // Tools and a response_format together: the model either calls tools, or replies with the
       // final answer as JSON matching the schema. On the last turn, tool_choice "none" forces the answer.
-      const completion = await openai.chat.completions.create({
-        model: env.OPENAI_CHAT_MODEL,
-        messages,
-        tools,
-        tool_choice: lastTurn ? "none" : "auto",
-        parallel_tool_calls: true,
-        response_format: responseFormat,
-        reasoning_effort: "low",
-        max_completion_tokens: 16_000,
-      });
+      const completion = await tracedChatCompletion(
+        `agent turn ${turn}`,
+        {
+          model: env.OPENAI_CHAT_MODEL,
+          // A copy, so this turn's trace shows the history as it was at this turn.
+          messages: [...messages],
+          tools,
+          tool_choice: lastTurn ? "none" : "auto",
+          parallel_tool_calls: true,
+          response_format: responseFormat,
+          reasoning_effort: "low",
+          max_completion_tokens: 16_000,
+        },
+        { turn, lastTurn },
+      );
       const latencyMs = Math.round(performance.now() - t0);
       model = completion.model;
       const turnUsage = {
@@ -218,23 +240,23 @@ export async function runAgent(resumeId: string, question: string, maxTurns: num
               return { ...previous, id, turn, duplicate: true, latencyMs: 0,
                 output: `You already made this exact call (${previous.id}); the result is the same:\n${previous.output}` };
             }
-            let output: string;
-            let isError: boolean;
-            try {
-              const local = LOCAL_TOOLS[call.function.name];
-              if (local) {
-                output = local.run(args);
-                isError = false;
-              } else {
-                const result = (await client.callTool({ name: call.function.name, arguments: { ...args, resumeId } })) as CallToolResult;
-                output = resultText(result);
-                isError = Boolean(result.isError);
-              }
-            } catch (err) {
-              // Bad local-tool args, or a protocol-level failure (unknown tool, server crash): report it to the model as a tool error.
-              output = `Error: ${(err as Error).message}`;
-              isError = true;
-            }
+            // A "tool" span per call. For MCP tools the server's own span nests inside it, so the
+            // trace shows both sides of the call: what the agent asked and what the server did.
+            const { output, isError } = await traceStep(
+              `tool:${call.function.name}`,
+              { asType: "tool", input: args, metadata: { callId: id, turn } },
+              async () => {
+                try {
+                  const local = LOCAL_TOOLS[call.function.name];
+                  if (local) return { output: local.run(args), isError: false };
+                  const result = (await client.callTool({ name: call.function.name, arguments: { ...args, resumeId } })) as CallToolResult;
+                  return { output: resultText(result), isError: Boolean(result.isError) };
+                } catch (err) {
+                  // Bad local-tool args, or a protocol-level failure (unknown tool, server crash): report it to the model as a tool error.
+                  return { output: `Error: ${(err as Error).message}`, isError: true };
+                }
+              },
+            );
             const record = { id, turn, tool: call.function.name, args, output, isError, duplicate: false, latencyMs: Math.round(performance.now() - c0) };
             cache.set(key, record);
             return record;
@@ -272,26 +294,40 @@ export async function runAgent(resumeId: string, question: string, maxTurns: num
       turns.push({ turn, action: "answer", toolCallIds: [], latencyMs, usage: turnUsage });
 
       log(SCOPE, "Verifying citations: each quote must appear in the output of a tool the agent actually called.");
-      const evidence = toolCalls.filter((t) => !t.isError && !t.duplicate);
-      const claims: Claim[] = result.data.claims.map((c, i) => {
-        const citations = c.citations.map(({ quote }) => {
-          for (const t of evidence) {
-            // Tool outputs are JSON, so quotes with newlines or quotes appear escaped; match the decoded text too.
-            const found = locateQuote(t.output, quote);
-            if (found.grounding !== "not_found") return { sourceId: t.id, quote, ...found };
-            const escaped = JSON.stringify(quote).slice(1, -1);
-            const foundEscaped = locateQuote(t.output, escaped);
-            if (foundEscaped.grounding !== "not_found") return { sourceId: t.id, quote, ...foundEscaped };
-          }
-          return { sourceId: "", quote, grounding: "not_found" as const, span: null };
-        });
-        const supported = citations.some((x) => x.grounding === "exact" || x.grounding === "normalized");
-        log(SCOPE, [`Claim ${i + 1}: "${c.text}"`, ...citations.map((x) => `  "${x.quote}" -> ${x.grounding}${x.sourceId ? ` in ${x.sourceId}` : ""}`), `  => ${supported ? "SUPPORTED" : "UNSUPPORTED"}`].join("\n"));
-        return { text: c.text, citations, supported };
-      });
+      const claims = await traceStep(
+        "verify-citations",
+        { asType: "guardrail", input: result.data.claims, output: (cs) => cs.map((c) => ({ text: c.text, supported: c.supported, sources: c.citations.map((x) => `${x.sourceId || "?"}:${x.grounding}`) })) },
+        async () => {
+          const evidence = toolCalls.filter((t) => !t.isError && !t.duplicate);
+          const verified: Claim[] = result.data.claims.map((c, i) => {
+            const citations = c.citations.map(({ quote }) => {
+              for (const t of evidence) {
+                // Tool outputs are JSON, so quotes with newlines or quotes appear escaped; match the decoded text too.
+                const found = locateQuote(t.output, quote);
+                if (found.grounding !== "not_found") return { sourceId: t.id, quote, ...found };
+                const escaped = JSON.stringify(quote).slice(1, -1);
+                const foundEscaped = locateQuote(t.output, escaped);
+                if (foundEscaped.grounding !== "not_found") return { sourceId: t.id, quote, ...foundEscaped };
+              }
+              return { sourceId: "", quote, grounding: "not_found" as const, span: null };
+            });
+            const supported = citations.some((x) => x.grounding === "exact" || x.grounding === "normalized");
+            log(SCOPE, [`Claim ${i + 1}: "${c.text}"`, ...citations.map((x) => `  "${x.quote}" -> ${x.grounding}${x.sourceId ? ` in ${x.sourceId}` : ""}`), `  => ${supported ? "SUPPORTED" : "UNSUPPORTED"}`].join("\n"));
+            return { text: c.text, citations, supported };
+          });
+          return verified;
+        },
+      );
 
       const latencyTotal = Math.round(performance.now() - startedAt);
       const stopReason = lastTurn ? "turn_limit" : "answered";
+      const unsupportedClaims = claims.filter((c) => !c.supported).length;
+      const traceId = activeTraceId();
+      score(traceId, "answer_status", result.data.status, { dataType: "CATEGORICAL" });
+      score(traceId, "unsupported_claims", unsupportedClaims, { dataType: "NUMERIC" });
+      // Agent-specific health signals: how much work it took, and whether it hit the limit.
+      score(traceId, "agent_turns", turn, { dataType: "NUMERIC" });
+      score(traceId, "agent_tool_errors", toolCalls.filter((t) => t.isError).length, { dataType: "NUMERIC" });
       log(SCOPE, `Agent finished: status "${result.data.status}" after ${turn} turn(s) and ${toolCalls.length} tool call(s) in ${latencyTotal}ms${stopReason === "turn_limit" ? " (hit the turn limit and was forced to answer)" : ""}. Tokens: ${JSON.stringify(usage)}.`);
       return {
         resumeId,
@@ -301,7 +337,7 @@ export async function runAgent(resumeId: string, question: string, maxTurns: num
         missing: result.data.missing,
         toolCalls,
         turns,
-        meta: { model, stopReason, unsupportedClaims: claims.filter((c) => !c.supported).length, usage, latencyMs: latencyTotal },
+        meta: { model, stopReason, unsupportedClaims, usage, latencyMs: latencyTotal },
       };
     }
     // Unreachable in practice: the last turn either answers or throws.

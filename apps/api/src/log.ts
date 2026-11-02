@@ -24,6 +24,10 @@ export function withRequestContext<T>(fn: () => T): T {
   return context.getStore() ? fn() : context.run({ requestId: randomUUID().slice(0, 8) }, fn);
 }
 
+export function currentRequestId(): string | null {
+  return context.getStore()?.requestId ?? null;
+}
+
 function prefix(scope: string): string {
   const time = new Date().toISOString().slice(11, 23);
   const requestId = context.getStore()?.requestId ?? "--------";

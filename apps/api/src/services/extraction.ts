@@ -18,6 +18,7 @@ import { HttpError } from "../http/errors.js";
 import { GROUNDING_WEIGHT, adjustedConfidence, locateQuote } from "./grounding.js";
 import { log, logBlock } from "../log.js";
 import { consistencyIssues } from "./consistency.js";
+import { activeTraceId, score } from "../observability/tracing.js";
 
 const form = profileForm;
 
@@ -149,7 +150,7 @@ function toSuggestions(
   return [build(field.name, "field", u, u.value, issues)];
 }
 
-export async function extractSuggestions(resumeText: string, strategy: ExtractionStrategy): Promise<ExtractResponse> {
+export async function extractSuggestions(resumeText: string, strategy: ExtractionStrategy): Promise<Omit<ExtractResponse, "trace">> {
   const startedAt = performance.now();
   const sectionOf = new Map(form.sections.flatMap((s) => s.fields.map((f) => [f.name, s.id] as const)));
   const groups = extractionGroups(strategy);
@@ -215,6 +216,12 @@ export async function extractSuggestions(resumeText: string, strategy: Extractio
   }
 
   const latencyMs = Math.round(performance.now() - startedAt);
+  // Hallucination signals as trace scores: chart them over time, filter for bad runs.
+  const traceId = activeTraceId();
+  const notFound = suggestions.filter((s) => s.grounding === "not_found").length;
+  score(traceId, "evidence_not_found", notFound, { dataType: "NUMERIC", comment: "Suggestions whose evidence quote isn't in the resume" });
+  score(traceId, "grounded_ratio", suggestions.length ? Math.round(((suggestions.length - notFound) / suggestions.length) * 100) / 100 : 1, { dataType: "NUMERIC" });
+  score(traceId, "suggestions_with_issues", suggestions.filter((s) => s.issues.length).length, { dataType: "NUMERIC" });
   const byGrounding = suggestions.reduce<Record<string, number>>((acc, s) => ((acc[s.grounding] = (acc[s.grounding] ?? 0) + 1), acc), {});
   log(
     "extract",

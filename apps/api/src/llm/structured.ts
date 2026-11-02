@@ -1,7 +1,8 @@
 import type OpenAI from "openai";
 import { z } from "zod";
 import type { LlmUsage } from "@resume-agent/shared";
-import { openai } from "./openai.js";
+import { startActiveObservation } from "@langfuse/tracing";
+import { tracedChatCompletion } from "./openai.js";
 import { toStrictJsonSchema } from "./strictJsonSchema.js";
 import { env } from "../env.js";
 import { HttpError, issuesOf } from "../http/errors.js";
@@ -24,14 +25,42 @@ export interface StructuredResult<T> {
  * One structured-output call: strict JSON Schema (constrained decoding) + Zod validation,
  * with a repair retry that shows the model its own output and the exact validation errors.
  */
-export async function generateStructured<S extends z.ZodType>(opts: {
+export function generateStructured<S extends z.ZodType>(opts: StructuredOptions<S>): Promise<StructuredResult<z.output<S>>> {
+  // One span per structured call; each attempt is a child generation, so a repair shows up as
+  // two generations under it (the second with the validation errors in its input).
+  return startActiveObservation(
+    `structured-output:${opts.name}`,
+    async (span) => {
+      span.update({ input: { name: opts.name } });
+      try {
+        const result = await runStructured(opts);
+        span.update({
+          output: result.data,
+          metadata: { attempts: result.attempts, usage: result.usage },
+          // A repair means the first answer was invalid: worth noticing even though we recovered.
+          level: result.attempts > 1 ? "WARNING" : "DEFAULT",
+          statusMessage: result.attempts > 1 ? `Needed ${result.attempts} attempts (repair retry)` : undefined,
+        });
+        return result;
+      } catch (err) {
+        span.update({ level: "ERROR", statusMessage: (err as Error).message });
+        throw err;
+      }
+    },
+    { asType: "chain" },
+  );
+}
+
+interface StructuredOptions<S extends z.ZodType> {
   name: string;
   schema: S;
   system: string;
   user: string;
   /** Log scope, e.g. "llm/personal", so parallel calls can be told apart in the logs. */
   logScope?: string;
-}): Promise<StructuredResult<z.output<S>>> {
+}
+
+async function runStructured<S extends z.ZodType>(opts: StructuredOptions<S>): Promise<StructuredResult<z.output<S>>> {
   const scope = opts.logScope ?? `llm/${opts.name}`;
   const startedAt = performance.now();
   const usage: LlmUsage = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0 };
@@ -48,15 +77,20 @@ export async function generateStructured<S extends z.ZodType>(opts: {
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     log(scope, `Attempt ${attempt}/${MAX_ATTEMPTS}: calling OpenAI model "${env.OPENAI_CHAT_MODEL}" with ${messages.length} messages (roles: ${messages.map((m) => m.role).join(", ")}), reasoning_effort=low, max_completion_tokens=16000. Waiting for the reply...`);
     const callStartedAt = performance.now();
-    const completion = await openai.chat.completions.create({
-      model: env.OPENAI_CHAT_MODEL,
-      messages,
-      response_format: { type: "json_schema", json_schema: { name: opts.name, strict: true, schema: jsonSchema } },
-      // gpt-5 family are reasoning models: no temperature knob; effort controls hidden "thinking".
-      reasoning_effort: "low",
-      // Caps visible output *plus* reasoning tokens.
-      max_completion_tokens: 16_000,
-    });
+    const completion = await tracedChatCompletion(
+      `${opts.name} (attempt ${attempt})`,
+      {
+        model: env.OPENAI_CHAT_MODEL,
+        // A copy: later repair messages must not change what this attempt's trace shows as input.
+        messages: [...messages],
+        response_format: { type: "json_schema", json_schema: { name: opts.name, strict: true, schema: jsonSchema } },
+        // gpt-5 family are reasoning models: no temperature knob; effort controls hidden "thinking".
+        reasoning_effort: "low",
+        // Caps visible output *plus* reasoning tokens.
+        max_completion_tokens: 16_000,
+      },
+      { attempt },
+    );
 
     usage.inputTokens += completion.usage?.prompt_tokens ?? 0;
     usage.outputTokens += completion.usage?.completion_tokens ?? 0;

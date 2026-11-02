@@ -14,6 +14,7 @@ import {
   type AgentRequest,
   type AskRequest,
   type ExtractRequest,
+  type FeedbackRequest,
   type IngestRequest,
   type SaveProfileRequest,
   type SearchRequest,
@@ -59,5 +60,9 @@ export const api = {
     request(AskResponseSchema, { method: "post", url: `/resumes/${resumeId}/ask`, data: body }),
   agent: (resumeId: string, body: AgentRequest) =>
     request(AgentResponseSchema, { method: "post", url: `/resumes/${resumeId}/agent`, data: body }),
+  // 202/204 with no body, so no response schema to parse.
+  feedback: async (body: FeedbackRequest) => {
+    await http.post("/feedback", body);
+  },
   saveProfile: (body: SaveProfileRequest) => request(SaveProfileResponseSchema, { method: "post", url: "/profiles", data: body }),
 };

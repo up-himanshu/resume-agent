@@ -97,3 +97,5 @@ mark { background: var(--good-bg); color: inherit; border-radius: 2px; }
 .trace .badge { white-space: normal; overflow-wrap: anywhere; }
 .mode-toggle label { flex: 0 0 auto; white-space: nowrap; }
 .mode-toggle input[type="radio"] { width: auto; }
+.trace-link { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; }
+button.cite.chosen { outline: 2px solid var(--accent); }

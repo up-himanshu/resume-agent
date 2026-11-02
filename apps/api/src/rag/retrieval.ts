@@ -3,6 +3,7 @@ import { pool } from "../db.js";
 import { log } from "../log.js";
 import { embedTexts, toPgVector } from "./embeddings.js";
 import { rerankScores } from "./reranker.js";
+import { traceStep } from "../observability/tracing.js";
 
 // Hybrid retrieval: two first-stage retrievers with different strengths, fused, then reranked.
 //   vector  - meaning ("led a team" ~ "mentored engineers"), weak on exact names/terms
@@ -81,7 +82,21 @@ export interface SearchOptions {
   candidates?: number;
 }
 
-export async function hybridSearch(resumeId: string, query: string, opts: SearchOptions): Promise<SearchResponse> {
+export function hybridSearch(resumeId: string, query: string, opts: SearchOptions): Promise<SearchResponse> {
+  return traceStep(
+    "hybrid-search",
+    {
+      asType: "retriever",
+      input: { query, ...opts },
+      // The trace shows what was retrieved and how it scored, not the full debug payload.
+      output: (r) => r.results.map((h) => ({ section: h.section, text: h.sourceText, rerank: h.scores.rerank?.score ?? null, rrfRank: h.scores.rrf.rank })),
+      metadata: { resumeId },
+    },
+    () => runHybridSearch(resumeId, query, opts),
+  );
+}
+
+async function runHybridSearch(resumeId: string, query: string, opts: SearchOptions): Promise<SearchResponse> {
   const scope = "retrieve";
   const candidates = opts.candidates ?? 10;
   const t0 = performance.now();
@@ -90,9 +105,13 @@ export async function hybridSearch(resumeId: string, query: string, opts: Search
   const { vectors } = await embedTexts([query], scope);
   const tEmbed = performance.now();
 
+  // Two parallel child spans: the trace's timeline shows they overlap.
+  const preview3 = (rows: Row[]) => rows.map((r) => ({ score: Number(r.score), text: preview(r.content) }));
   const [vectorRows, keyword] = await Promise.all([
-    vectorSearch(resumeId, vectors[0]!, candidates),
-    keywordSearch(resumeId, query, candidates),
+    traceStep("vector-search", { input: { candidates }, output: preview3 }, () => vectorSearch(resumeId, vectors[0]!, candidates)),
+    traceStep("keyword-search", { input: { candidates }, output: (k) => ({ lexemes: k.tsquery, hits: preview3(k.rows) }) }, () =>
+      keywordSearch(resumeId, query, candidates),
+    ),
   ]);
   const tSearch = performance.now();
   log(scope, `Vector search (cosine similarity, higher = closer in meaning) returned ${vectorRows.length}:`,
@@ -124,7 +143,12 @@ export async function hybridSearch(resumeId: string, query: string, opts: Search
   let tRerank: number | null = null;
   if (opts.rerank && ordered.length) {
     const r0 = performance.now();
-    const scores = await rerankScores(query, ordered.map((o) => byId.get(o.id)!.content));
+    const docs = ordered.map((o) => byId.get(o.id)!.content);
+    const scores = await traceStep(
+      "cross-encoder-rerank",
+      { input: { pairs: docs.length }, output: (s) => s.map((x, i) => ({ logit: Math.round(x * 100) / 100, text: preview(docs[i]!) })) },
+      () => rerankScores(query, docs),
+    );
     tRerank = performance.now() - r0;
     const reranked = ordered.map((o, i) => ({ ...o, rerankScore: scores[i]! })).sort((a, b) => b.rerankScore - a.rerankScore);
     reranked.forEach((o, i) => rerankInfo.set(o.id, { rank: i + 1, score: o.rerankScore }));
