@@ -19,6 +19,11 @@ export function sendLogsToStderr(): void {
   write = (line) => console.error(line);
 }
 
+/** Sends log lines somewhere else, e.g. a file, so an eval run's console shows only results. */
+export function sendLogsTo(writer: (line: string) => void): void {
+  write = writer;
+}
+
 /** Gives fn a request id when it doesn't already have one (e.g. MCP over stdio, which has no Express request). */
 export function withRequestContext<T>(fn: () => T): T {
   return context.getStore() ? fn() : context.run({ requestId: randomUUID().slice(0, 8) }, fn);

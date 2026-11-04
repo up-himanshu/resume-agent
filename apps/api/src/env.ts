@@ -15,6 +15,8 @@ const EnvSchema = z.object({
   OPENAI_API_KEY: z.string().startsWith("sk-", "OPENAI_API_KEY should start with sk-"),
   OPENAI_CHAT_MODEL: z.string().min(1),
   OPENAI_EMBEDDING_MODEL: z.string().min(1),
+  // Evals only (Step 10): a stronger model grades the chat model's answers, to limit self-preference bias.
+  OPENAI_JUDGE_MODEL: z.string().min(1).default("gpt-5"),
   DATABASE_URL: z.url(),
   API_PORT: z.coerce.number().int().positive().default(4000),
   // Tracing is optional: without these keys the app runs exactly the same, just untraced.

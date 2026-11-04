@@ -1,0 +1,92 @@
+# Eval gate: runs the golden set against real models on every PR that can change answers, and
+# fails the check when an aggregate drops below its threshold (apps/api/evals/scoring.ts GATES).
+#
+# Needs repository secrets: OPENAI_API_KEY (required), LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY
+# (optional: record each run as a Langfuse experiment). A full run costs well under $1.
+name: evals
+
+on:
+  pull_request:
+    # Evals cost money and take minutes: only when something that affects answers changed.
+    paths:
+      - "apps/api/**"
+      - "packages/shared/**"
+      - "samples/**"
+      - "db/migrations/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/evals.yml"
+  workflow_dispatch:
+
+# A new push to the same PR cancels the run in progress instead of paying for both.
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: resume
+          POSTGRES_PASSWORD: resume
+          POSTGRES_DB: resume_agent
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U resume -d resume_agent"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_CHAT_MODEL: gpt-5-mini
+      OPENAI_EMBEDDING_MODEL: text-embedding-3-small
+      OPENAI_JUDGE_MODEL: gpt-5
+      DATABASE_URL: postgres://resume:resume@localhost:5432/resume_agent
+      LANGFUSE_BASE_URL: https://us.cloud.langfuse.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.9.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # Only set the Langfuse keys when the secrets exist: an empty value would fail env validation.
+      - name: Langfuse keys (optional)
+        env:
+          PK: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          SK: ${{ secrets.LANGFUSE_SECRET_KEY }}
+        run: |
+          if [ -n "$PK" ] && [ -n "$SK" ]; then
+            echo "LANGFUSE_PUBLIC_KEY=$PK" >> "$GITHUB_ENV"
+            echo "LANGFUSE_SECRET_KEY=$SK" >> "$GITHUB_ENV"
+          fi
+
+      # The cross-encoder reranker (~23 MB from Hugging Face) is cached between runs.
+      - uses: actions/cache@v4
+        with:
+          path: .cache/models
+          key: reranker-ms-marco-MiniLM-L-6-v2
+
+      - name: Migrate database
+        run: pnpm db:migrate
+
+      - name: Run evals
+        run: pnpm eval
+
+      - name: Upload eval report and app logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: apps/api/evals/results/

@@ -12,6 +12,7 @@
     "db:psql": "docker compose exec postgres psql -U resume -d resume_agent",
     "db:migrate": "pnpm --filter @resume-agent/api exec tsx scripts/migrate.ts",
     "mcp": "pnpm --filter @resume-agent/api mcp",
+    "eval": "pnpm --filter @resume-agent/api eval",
     "mcp:inspect": "pnpm --filter @resume-agent/api mcp:inspect"
   }
 }

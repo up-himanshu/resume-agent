@@ -8,3 +8,6 @@ dist/
 
 # Downloaded ML models (cross-encoder reranker)
 .cache/
+
+# Eval run outputs (reports and app logs); CI uploads them as artifacts
+apps/api/evals/results/

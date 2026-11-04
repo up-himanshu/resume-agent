@@ -58,12 +58,17 @@ interface StructuredOptions<S extends z.ZodType> {
   user: string;
   /** Log scope, e.g. "llm/personal", so parallel calls can be told apart in the logs. */
   logScope?: string;
+  /** Defaults to OPENAI_CHAT_MODEL. The eval judge uses a stronger one. */
+  model?: string;
+  reasoningEffort?: "minimal" | "low" | "medium" | "high";
 }
 
 async function runStructured<S extends z.ZodType>(opts: StructuredOptions<S>): Promise<StructuredResult<z.output<S>>> {
   const scope = opts.logScope ?? `llm/${opts.name}`;
   const startedAt = performance.now();
   const usage: LlmUsage = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0 };
+  const model = opts.model ?? env.OPENAI_CHAT_MODEL;
+  const reasoningEffort = opts.reasoningEffort ?? "low";
   const jsonSchema = toStrictJsonSchema(opts.schema);
   log(scope, `Converted the Zod schema into a strict JSON Schema (${JSON.stringify(jsonSchema).length} chars). The model is forced to return exactly this shape (constrained decoding). Every "description" in it is read by the model as an instruction.`);
   logBlock(scope, `JSON Schema "${opts.name}" sent as response_format`, JSON.stringify(jsonSchema, null, 2));
@@ -75,17 +80,17 @@ async function runStructured<S extends z.ZodType>(opts: StructuredOptions<S>): P
 
   let lastProblem: unknown;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    log(scope, `Attempt ${attempt}/${MAX_ATTEMPTS}: calling OpenAI model "${env.OPENAI_CHAT_MODEL}" with ${messages.length} messages (roles: ${messages.map((m) => m.role).join(", ")}), reasoning_effort=low, max_completion_tokens=16000. Waiting for the reply...`);
+    log(scope, `Attempt ${attempt}/${MAX_ATTEMPTS}: calling OpenAI model "${model}" with ${messages.length} messages (roles: ${messages.map((m) => m.role).join(", ")}), reasoning_effort=${reasoningEffort}, max_completion_tokens=16000. Waiting for the reply...`);
     const callStartedAt = performance.now();
     const completion = await tracedChatCompletion(
       `${opts.name} (attempt ${attempt})`,
       {
-        model: env.OPENAI_CHAT_MODEL,
+        model,
         // A copy: later repair messages must not change what this attempt's trace shows as input.
         messages: [...messages],
         response_format: { type: "json_schema", json_schema: { name: opts.name, strict: true, schema: jsonSchema } },
         // gpt-5 family are reasoning models: no temperature knob; effort controls hidden "thinking".
-        reasoning_effort: "low",
+        reasoning_effort: reasoningEffort,
         // Caps visible output *plus* reasoning tokens.
         max_completion_tokens: 16_000,
       },

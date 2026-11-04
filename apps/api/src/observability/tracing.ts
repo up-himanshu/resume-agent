@@ -34,8 +34,8 @@ if (processor) {
   new NodeTracerProvider({ spanProcessors: [processor] }).register();
 }
 
-/** API client for things that aren't spans: scores and trace URLs. */
-const langfuse = tracingEnabled
+/** API client for things that aren't spans: scores, trace URLs, datasets and experiments (Step 10). */
+export const langfuse = tracingEnabled
   ? new LangfuseClient({ publicKey: env.LANGFUSE_PUBLIC_KEY, secretKey: env.LANGFUSE_SECRET_KEY, baseUrl: env.LANGFUSE_BASE_URL })
   : null;
 
